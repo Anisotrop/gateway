@@ -19,6 +19,9 @@ import static org.kaazing.gateway.transport.ws.WsMessage.Kind.BINARY;
 import static org.kaazing.gateway.transport.ws.WsMessage.Kind.CONTINUATION;
 import static org.kaazing.gateway.transport.ws.WsMessage.Kind.TEXT;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import org.apache.mina.core.session.IoSession;
@@ -42,7 +45,7 @@ public class WsFrameDecoder extends CumulativeProtocolDecoderEx {
     private final int maxMessageSize;
     private BinaryTextMessageDecoder binaryTextDecoder = DEFAULT_BINARY_TEXT_DECODER;
     private boolean prevDataFin = true;
-    private long currentMessageSize;           // accumulates frame sizes of a message
+    private long currentMessageSize; // accumulates frame sizes of a message
 
     WsFrameDecoder(IoBufferAllocatorEx<?> allocator, int maxMessageSize) {
         super(allocator);
@@ -55,78 +58,101 @@ public class WsFrameDecoder extends CumulativeProtocolDecoderEx {
             return false;
         }
 
-        in.mark();
-
-        byte opcodeByte = in.get();
-        validateRSV(opcodeByte);
-
-        int i = (opcodeByte & 0x0f);
-        Opcode opcode;
+        // System.out.println("Position: " + in.position() + " remaining: " + in.remaining());
+        File f = new File("D:\\temp\\fix_370.txt");
+        FileWriter w = new FileWriter(f, true);
 
         try {
-            opcode = Opcode.valueOf(i);
-        }
-        catch (IllegalArgumentException e) {
-            throw new ProtocolDecoderException("Unrecognized WebSocket frame opcode: " + i + " on session " + session.getLocalAddress(), e);
-        }
 
-        // FIN bit validation for opcode
-        boolean fin = (opcodeByte & 0x80) != 0;
-        validateOpcodeUsingFin(opcode, fin);
+            w.write("\n--------\n");
+            w.write("Thread: " + Thread.currentThread().getName() + "\n");
+            w.write("Buffer capacity: " + in.capacity() + " position: " + in.position() + " remaining: " + in.remaining()
+                    + "\n");
 
-        byte maskAndPayloadLenByte = in.get();
-        boolean masked = (maskAndPayloadLenByte & 0x80) != 0;
-        int payloadLenByte = maskAndPayloadLenByte & 0x7f;
+            in.mark();
 
-        // calculate actual payload length by checking if there is
-        // extended payload length
-        long frameSize = 0;
+            byte opcodeByte = in.get();
 
-        if (payloadLenByte < 126) {
-            frameSize = payloadLenByte;
-        }
-        else if (payloadLenByte == 126) {
-            if (in.remaining() < 2) {
+            w.write("OpcodeByte: " + Integer.toString(opcodeByte, 16) + "\n");
+
+
+            validateRSV(w, opcodeByte);
+
+            int i = (opcodeByte & 0x0f);
+            Opcode opcode;
+
+            try {
+                opcode = Opcode.valueOf(i);
+                w.write(opcode.toString() + "\n");
+            } catch (IllegalArgumentException e) {
+                w.write("Unrecognized WebSocket frame opcode: " + i + " on session " + session.getLocalAddress() + "\n");
+                throw new ProtocolDecoderException(
+                        "Unrecognized WebSocket frame opcode: " + i + " on session " + session.getLocalAddress(), e);
+            }
+
+            // FIN bit validation for opcode
+            boolean fin = (opcodeByte & 0x80) != 0;
+            
+            w.write("Validating opcode: " + opcode.toString() + " with fin: " + fin + "\n");
+            validateOpcodeUsingFin(opcode, fin);
+
+            byte maskAndPayloadLenByte = in.get();
+            boolean masked = (maskAndPayloadLenByte & 0x80) != 0;
+            int payloadLenByte = maskAndPayloadLenByte & 0x7f;
+
+            // calculate actual payload length by checking if there is
+            // extended payload length
+            long frameSize = 0;
+
+            if (payloadLenByte < 126) {
+                frameSize = payloadLenByte;
+            } else if (payloadLenByte == 126) {
+                if (in.remaining() < 2) {
+                    in.reset();
+                    return false;
+                }
+                frameSize = in.getUnsignedShort();
+            } else if (payloadLenByte == 127) {
+                if (in.remaining() < 8) {
+                    in.reset();
+                    return false;
+                }
+                frameSize = in.getLong();
+            }
+            
+            
+            w.write("Validating frameSize: " + frameSize + " with opcode: " + opcode.toString() + "\n");
+            validateFrameSize(frameSize, opcode);
+
+            long currentMessageSizeCandidate = frameSize;
+
+            if (opcode == Opcode.CONTINUATION) {
+                currentMessageSizeCandidate += currentMessageSize;
+            }
+
+            if (opcode == Opcode.CONTINUATION || opcode == Opcode.TEXT || opcode == Opcode.BINARY) {
+                validateMessageSize(currentMessageSizeCandidate);
+            }
+
+            // actual payload length plus additional 4 bytes if masked
+            long totalRemainingBytesNeeded = (masked ? 4 : 0) + frameSize;
+            if (in.remaining() < totalRemainingBytesNeeded) {
+                w.write("Remaining less than totalRemainingBytesNeeded: " + totalRemainingBytesNeeded + ". Returning false.\n");
                 in.reset();
                 return false;
             }
-            frameSize = in.getUnsignedShort();
-        }
-        else if (payloadLenByte == 127){
-            if (in.remaining() < 8) {
-                in.reset();
-                return false;
+
+            int mask = masked ? in.getInt() : 0;
+
+            IoBufferEx buf = in.getSlice((int) frameSize);
+            if (mask != 0) {
+                unmask(buf.buf(), mask);
             }
-            frameSize = in.getLong();
-        }
+            
+            w.write("Unmasked buffer capacity: " + in.capacity() + " position: " + in.position() + " remaining: " + in.remaining()
+            + "\n");
 
-        validateFrameSize(frameSize, opcode);
-
-        long currentMessageSizeCandidate = frameSize;
-
-        if (opcode == Opcode.CONTINUATION) {
-            currentMessageSizeCandidate += currentMessageSize;
-        }
-
-        if (opcode == Opcode.CONTINUATION || opcode == Opcode.TEXT || opcode == Opcode.BINARY) {
-            validateMessageSize(currentMessageSizeCandidate);
-        }
-
-        // actual payload length plus additional 4 bytes if masked
-        long totalRemainingBytesNeeded = (masked ? 4 : 0) + frameSize;
-        if (in.remaining() < totalRemainingBytesNeeded) {
-            in.reset();
-            return false;
-        }
-
-        int mask = masked ? in.getInt() : 0;
-
-        IoBufferEx buf = in.getSlice((int) frameSize);
-        if (mask != 0) {
-            unmask(buf.buf(), mask);
-        }
-
-        switch (opcode) {
+            switch (opcode) {
             case CONTINUATION:
                 binaryTextDecoder.decodeWsMessage(buf, CONTINUATION, fin, out);
                 prevDataFin = fin;
@@ -160,53 +186,69 @@ public class WsFrameDecoder extends CumulativeProtocolDecoderEx {
                 out.write(close);
                 break;
             default:
-                throw new ProtocolDecoderException("Unknown WebSocket opcode: " + opcode  + " on session " + session.getLocalAddress());
+                throw new ProtocolDecoderException(
+                        "Unknown WebSocket opcode: " + opcode + " on session " + session.getLocalAddress());
+            }
+        
+        } catch(Exception e) {
+            w.write("Exception occured: " + e.getMessage());
+            throw e;
         }
+        finally {
+            w.close();
+        }
+
         return true;
     }
 
     // Validates opcode w.r.t FIN bit
     private void validateOpcodeUsingFin(Opcode opcode, boolean fin) throws ProtocolDecoderException {
         switch (opcode) {
-            case CONTINUATION:
-                if (prevDataFin) {
-                    throw new ProtocolDecoderException("Not expecting CONTINUATION frame");
-                }
-                break;
+        case CONTINUATION:
+            if (prevDataFin) {
+                throw new ProtocolDecoderException("Not expecting CONTINUATION frame");
+            }
+            break;
 
-            case TEXT:
-            case BINARY:
-                if (!prevDataFin) {
-                    throw new ProtocolDecoderException("Expecting CONTINUATION frame, but got "+opcode+" frame");
-                }
-                break;
+        case TEXT:
+        case BINARY:
+            if (!prevDataFin) {
+                throw new ProtocolDecoderException("Expecting CONTINUATION frame, but got " + opcode + " frame");
+            }
+            break;
 
-            case PING:
-            case PONG:
-            case CLOSE:
-                if (!fin) {
-                    throw new ProtocolDecoderException("Expected FIN for "+opcode+" frame");
-                }
-                break;
+        case PING:
+        case PONG:
+        case CLOSE:
+            if (!fin) {
+                throw new ProtocolDecoderException("Expected FIN for " + opcode + " frame");
+            }
+            break;
         default:
             break;
         }
     }
 
     // Validates RSV bits
-    private void validateRSV(byte opcodeByte) throws ProtocolDecoderException {
+    private void validateRSV(FileWriter w, byte opcodeByte) throws ProtocolDecoderException, IOException {
+
+        w.write("Thread: " + Thread.currentThread().getName() + "\n");
         if ((opcodeByte & 0x70) != 0) {
             // We don't support negotiated extensions that deal with RSV bits
             if ((opcodeByte & 0x40) != 0) {
+                w.write("Exception: RSV1 is set\n");
                 throw new ProtocolDecoderException("RSV1 is set");
             }
             if ((opcodeByte & 0x20) != 0) {
+                w.write("Exception: RSV2 is set\n");
                 throw new ProtocolDecoderException("RSV2 is set");
             }
             if ((opcodeByte & 0x10) != 0) {
+                w.write("Exception: RSV3 is set\n");
                 throw new ProtocolDecoderException("RSV3 is set");
             }
         }
+        w.write("No RSV Exception thrown.\n");
     }
 
     /*
@@ -251,7 +293,7 @@ public class WsFrameDecoder extends CumulativeProtocolDecoderEx {
             break;
         case 0:
         default:
-                break;
+            break;
         }
         buf.position(start);
     }
@@ -259,19 +301,19 @@ public class WsFrameDecoder extends CumulativeProtocolDecoderEx {
     private void validateMessageSize(long messageSize) throws WSMessageTooLongException {
         // note: negative size indicates large unsigned value, larger than Long.MAX_VALUE
         if (maxMessageSize > 0 && (messageSize < 0 || messageSize > maxMessageSize)) {
-            throw new WSMessageTooLongException(String.format("Incoming message size %d bytes exceeds permitted maximum of %d bytes", messageSize, maxMessageSize));
+            throw new WSMessageTooLongException(String.format(
+                    "Incoming message size %d bytes exceeds permitted maximum of %d bytes", messageSize, maxMessageSize));
         }
     }
-
 
     private void validateFrameSize(long frameSize, Opcode opcode) throws ProtocolDecoderException {
         // Control frame payload size cannot be greater than 125 bytes
         if (frameSize > 125) {
             switch (opcode) {
-                case PING:
-                case PONG:
-                case CLOSE:
-                    throw new ProtocolDecoderException("Invalid "+opcode+" frame payload length = "+frameSize);
+            case PING:
+            case PONG:
+            case CLOSE:
+                throw new ProtocolDecoderException("Invalid " + opcode + " frame payload length = " + frameSize);
             default:
                 break;
             }
@@ -279,7 +321,7 @@ public class WsFrameDecoder extends CumulativeProtocolDecoderEx {
 
         // If there is data in CLOSE frame, first 2-bytes represent close status code
         if (opcode == Opcode.CLOSE && frameSize == 1) {
-            throw new ProtocolDecoderException("Invalid CLOSE frame payload length = "+frameSize);
+            throw new ProtocolDecoderException("Invalid CLOSE frame payload length = " + frameSize);
         }
     }
 
@@ -290,7 +332,7 @@ public class WsFrameDecoder extends CumulativeProtocolDecoderEx {
     private static final BinaryTextMessageDecoder DEFAULT_BINARY_TEXT_DECODER = new BinaryTextMessageDecoder() {
         @Override
         public void decodeWsMessage(IoBufferEx payload, Kind messageKind, boolean fin, ProtocolDecoderOutput out) {
-            switch(messageKind) {
+            switch (messageKind) {
             case CONTINUATION:
                 out.write(new WsContinuationMessage(payload, fin));
                 break;
