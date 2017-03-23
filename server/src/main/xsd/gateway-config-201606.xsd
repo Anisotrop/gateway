@@ -1387,6 +1387,11 @@
                     <documentation>The maximum redirects http connector follows</documentation>
                 </annotation>
             </element>
+            <element name="udp.padding.alignment" maxOccurs="1" minOccurs="0" type="nonNegativeInteger">
+                <annotation>
+                    <documentation>When greater than zero, will pad messages to a length multiple of the given value.</documentation>
+                </annotation>
+            </element>
         </all>
     </complexType>
     
@@ -1526,11 +1531,16 @@
                 </annotation>
             </element>
             <element name="http.max.authentication.attempts" maxOccurs="1" minOccurs="0" type="nonNegativeInteger">
-            <annotation>
-                <documentation>The number of attempts that the http connector
-                    will try while authenticating (i.e responding to a 401)
-                </documentation>
-            </annotation>
+                <annotation>
+                    <documentation>The number of attempts that the http connector
+                        will try while authenticating (i.e responding to a 401)
+                    </documentation>
+                </annotation>
+            </element>
+            <element name="udp.padding.alignment" maxOccurs="1" minOccurs="0" type="nonNegativeInteger">
+                <annotation>
+                    <documentation>When greater than zero, will pad messages to a length multiple of the given value.</documentation>
+                </annotation>
             </element>
         </all>
     </complexType>
