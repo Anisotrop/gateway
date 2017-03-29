@@ -72,6 +72,12 @@ public class TcpAcceptorIT {
         k3po.start();
         k3po.notifyBarrier("BOUND");
     }
+    
+    private void bindTo8090(IoHandlerAdapter<IoSessionEx> handler) throws InterruptedException {
+        acceptor.bind(uri.replaceAll("8080", "8090"), handler);
+        k3po.start();
+        k3po.notifyBarrier("BOUND");
+    }
 
     private void writeStringMessageToSession(String message, IoSession session) {
         ByteBuffer data = ByteBuffer.allocate(message.length());
@@ -84,7 +90,6 @@ public class TcpAcceptorIT {
         session.write(allocator.wrap(data.duplicate(), IoBufferEx.FLAG_SHARED));
     }
 
-    @Ignore("https://github.com/kaazing/gateway/issues/357")
     @Test
     @Specification({
         "establish.connection/client"
@@ -176,11 +181,12 @@ public class TcpAcceptorIT {
 
     @Test
     @Specification({
-        "concurrent.connections/client"
+        "8090/concurrent.connections/client"
         })
+    // FIXME to create issue
     public void concurrentConnections() throws Exception {
         CountDownLatch messageProcessed = new CountDownLatch(1);
-        bindTo8080(new IoHandlerAdapter<IoSessionEx>(){
+        bindTo8090(new IoHandlerAdapter<IoSessionEx>(){
 
             @Override
             protected void doSessionOpened(IoSessionEx session) throws Exception {

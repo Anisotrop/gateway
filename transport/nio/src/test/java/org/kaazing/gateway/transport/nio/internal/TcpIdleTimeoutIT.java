@@ -62,6 +62,7 @@ public class TcpIdleTimeoutIT {
 
     @Test
     @Specification({"additions/idle.timeout/does.not.close.when.data"})
+    // FIXME to create issue
     public void serverDoesNotCloseWithData() throws Exception {
         CountDownLatch writeAfterOpen = new CountDownLatch(1);
         AtomicInteger sends = new AtomicInteger(0);
@@ -80,7 +81,7 @@ public class TcpIdleTimeoutIT {
                 super.doMessageReceived(session, message);
             }
         };
-        acceptor.bind("tcp://127.0.0.1:8080", handler);
+        acceptor.bind("tcp://127.0.0.1:8090", handler);
         k3po.start();
         k3po.notifyBarrier("BOUND");
         writeAfterOpen.await();

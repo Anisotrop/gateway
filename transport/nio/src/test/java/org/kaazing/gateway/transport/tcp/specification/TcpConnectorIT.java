@@ -62,7 +62,7 @@ public class TcpConnectorIT {
 
     @Parameters
     public static Collection<Object[]> data() {
-        return Arrays.asList(new Object[][] {     
+        return Arrays.asList(new Object[][] {
                 {"tcp://127.0.0.1:8080"}, {"tcp://[@" + networkInterface + "]:8080"}
            });
     }
@@ -73,6 +73,13 @@ public class TcpConnectorIT {
     private void connectTo8080(IoHandlerAdapter<IoSessionEx> handler) throws InterruptedException {
         final String connectURIString = uri;
         ConnectFuture x = connector.connect(connectURIString, handler, null);
+        x.await(1, SECONDS);
+        Assert.assertTrue("Failed to connect, exception " + x.getException(), x.isConnected());
+    }
+    
+    private void connectTo8090(IoHandlerAdapter<IoSessionEx> handler) throws InterruptedException {
+        final String connectURIString = uri;
+        ConnectFuture x = connector.connect(connectURIString.replaceAll("8080", "8090"), handler, null);
         x.await(1, SECONDS);
         Assert.assertTrue("Failed to connect, exception " + x.getException(), x.isConnected());
     }
@@ -88,7 +95,7 @@ public class TcpConnectorIT {
         session.write(allocator.wrap(data.duplicate(), IoBufferEx.FLAG_SHARED));
     }
 
-    @Ignore("https://github.com/kaazing/tickets/issues/538")
+    // @Ignore("https://github.com/kaazing/tickets/issues/538")
     @Test
     @Specification({
         "establish.connection/server"
@@ -216,8 +223,9 @@ public class TcpConnectorIT {
 
     @Test
     @Specification({
-        "concurrent.connections/server"
-        })
+        "8090/concurrent.connections/server"
+    })
+    // FIXME to create issue
     public void shouldEstablishConcurrentConnections() throws Exception {
         CountDownLatch messageProcessed = new CountDownLatch(3);
         IoHandlerAdapter<IoSessionEx> adapter = new IoHandlerAdapter<IoSessionEx>(){
@@ -245,12 +253,13 @@ public class TcpConnectorIT {
                 messageProcessed.countDown();
             }
         };
+        
         k3po.start();
         k3po.awaitBarrier("BOUND");
-        connectTo8080(adapter);
-        connectTo8080(adapter);
-        connectTo8080(adapter);
-
+        connectTo8090(adapter);
+        connectTo8090(adapter);
+        connectTo8090(adapter);
+        
         k3po.finish();
         assertTrue(messageProcessed.await(2, TimeUnit.SECONDS));
     }
